@@ -1,0 +1,93 @@
+<html>
+<head>
+<script src="nacl.min.js"></script>
+<script src="nacl-util.min.js"></script>
+<script src="sealedbox.web.js"></script>
+</head>
+
+<body>
+
+<div>
+    <input type="password" id="password">
+    <button onclick="encodePassword()">Encode password</button>
+</div>    
+<div id="result"></div>
+
+
+<script>
+function encodePassword(){
+
+function hexToBytes(publicKey) {
+    var bytes = [];
+    for (var c = 0; c < publicKey.length; c += 2)
+        bytes.push(parseInt(publicKey.slice(c, c + 2), 16));
+    return new Uint8Array(bytes)
+}
+
+var urlParams = new URLSearchParams(window.location.search);
+var keyId = "40"  //keyId
+var publicKey = "5bebdc1158f23418c7d27cd17434acc98a259996af56b1c138476ef99195543a"
+var password = document.getElementById("password").value
+var part1 = "#PWD_BROWSER";
+var part2 = 5;
+var passwordBytes = nacl.util.decodeUTF8(password)
+var time = Math.floor(Date.now() / 1e3).toString()
+var timeBytes = nacl.util.decodeUTF8(time)
+
+var v = {
+    name: "AES-GCM",
+    length: 256
+}
+var w = {
+    name: "AES-GCM", 
+    iv: new Uint8Array(12), //initialization vector
+    additionalData: timeBytes, //salt
+    tagLen: 16  // length of the authentication tag
+}
+
+var i = 1, j = 1, k = 1, n = 32, o = 16, m=2, overheadLength=48 //magic constants
+var p = j + k + m + n + overheadLength + o
+
+f = p + passwordBytes.length;
+var publicKeyBytes = hexToBytes(publicKey)
+t = new Uint8Array(f);
+u = 0;
+t[u] = i;
+u += j;
+t[u] = keyId;
+u += k;
+
+window.crypto.subtle.generateKey(v, true, ["encrypt", "decrypt"]).then(function(key) {
+
+    var keyExportPromise = window.crypto.subtle.exportKey("raw", key);
+    var encryptPasswordPromise = window.crypto.subtle.encrypt(w, key, passwordBytes.buffer);
+    return Promise.all([keyExportPromise, encryptPasswordPromise])})
+    
+.then(function(a){
+
+    var b = new Uint8Array(a[0]);
+    b = sealedBox.seal(b, publicKeyBytes)
+    t[u] = b.length & 255;
+    t[u + 1] = b.length >> 8 & 255;
+    u += m;
+    t.set(b, u);
+    u += n;
+    u += overheadLength;
+    if (b.length !== n + overheadLength)
+        throw new Error("encrypted key is the wrong length");
+    b = new Uint8Array(a[1]);
+    a = b.slice(-o);
+    b = b.slice(0, -o);
+    t.set(a, u);
+    u += o;
+    t.set(b, u);
+            
+    var res = [part1, part2, time, nacl.util.encodeBase64(t)].join(":")
+    document.getElementById('result').innerHTML = res
+
+})
+}
+</script>
+
+</body>
+</html>
